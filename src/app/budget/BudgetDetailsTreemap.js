@@ -154,7 +154,13 @@ const BudgetDetailsTreemap = (props) => {
               </label>
             </RadioGroup>
           </div>
-          <Treemap data={findTop(myTree, props.location.query.nodePath || 'root')} altText={['Treemap of', (props.location.query.mode || 'expenditures')].join(' ')} diveDeeper={props.diveDeeper} differenceColors history={browserHistory} location={props.location} />
+          <Treemap
+            data={findTop(myTree, props.location.query.nodePath || 'root')}
+            altText={['Treemap of', (props.location.query.mode || 'expenditures')].join(' ')}
+            diveDeeper={props.diveDeeper}
+            history={browserHistory}
+            location={props.location}
+          />
         </div>
       </div>
     </div>

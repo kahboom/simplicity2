@@ -1,8 +1,10 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import { ResponsiveContainer, Treemap as RechartsTreemap } from 'recharts';
+import { NetworkFrame } from 'semiotic';
+import Tooltip from './Tooltip';
+import { scaleSequential } from 'd3-scale';
+import { interpolateLab } from 'd3-interpolate';
 
-const COLORS = ['#9C27B0', '#03A9F4', '#FFC107', '#b71c1c', '#4CAF50', '#E91E63', '#9E9E9E'];
 
 const getDollars = (value) => {
   if (value > 1000000) {
@@ -17,62 +19,23 @@ const getDollarsForTooltips = value => (
   [value < 0 ? '-$' : '$', Math.abs(value).toLocaleString()].join('')
 );
 
-// http://www.codingforums.com/javascript-programming/11156-convert-hsl-rgb-using-js.html
-function hsl2rgb(h, sOrig, lOrig) {
-  let m1;
-  let m2;
-  let hue;
-  let r;
-  let g;
-  let b;
-  const s = sOrig / 100;
-  const l = lOrig / 100;
-  if (s === 0) r = g = b = (l * 255);
-  else {
-    if (l <= 0.5) m2 = l * (s + 1);
-    else m2 = (l + s) - (l * s);
-    m1 = (l * 2) - m2;
-    hue = h / 360;
-    r = HueToRgb(m1, m2, hue + (1 / 3));
-    g = HueToRgb(m1, m2, hue);
-    b = HueToRgb(m1, m2, hue - (1 / 3));
-  }
-  return [r, g, b];
-}
-
-// http://www.codingforums.com/javascript-programming/11156-convert-hsl-rgb-using-js.html
-function HueToRgb(m1, m2, hue) {
-  let v;
-  let adjustedHue = hue;
-  if (adjustedHue < 0) adjustedHue += 1;
-  else if (adjustedHue > 1) adjustedHue -= 1;
-  if (6 * adjustedHue < 1) v = m1 + ((m2 - m1) * adjustedHue * 6);
-  else if (2 * adjustedHue < 1) v = m2;
-  else if (3 * adjustedHue < 2) v = m1 + ((m2 - m1) * ((2 / 3) - adjustedHue) * 6);
-  else v = m1;
-
-  return Math.ceil(255 * v);
-}
-
-const getFill = (delta) => {
-  let h = 0;
-  let s = 0;
-  let l = 100;
-  if (delta > 0) {
-    h = 240; // 300; // 240; // 0;
-    s = 100;
-    l = Math.ceil(Math.abs(delta) * 100) > 100 ? 45 : (((100 - (Math.abs(delta) * 100)) * 55) / 100) + 45;
-  } else if (delta < 0) {
-    h = 36; // 240;
-    s = 100;
-    l = Math.ceil(Math.abs(delta) * 100) > 100 ? 45 : (((100 - (Math.abs(delta) * 100)) * 55) / 100) + 45;
-  }
-  const rgbArray = hsl2rgb(h, s, l);
-  return ['rgb(', rgbArray[0], ',', rgbArray[1], ',', rgbArray[2], ')'].join('');
-};
+const positiveColor = scaleSequential(interpolateLab('#ffffff', '#0099ff')).domain([0, 100]);
+const negativeColor = scaleSequential(interpolateLab('#ffffff', '#ff9933')).domain([0, -100]);
 
 const getTopLevelOnly = (data) => (
-  data.map(item => (Object.assign({}, item, { children: null })))
+  // Needed because otherwise treemap is slow af
+  data.map(item => {
+    const num = parseFloat(item.deltaPercent.replace('%', ''))
+    const numIsNum = typeof num === 'number' && !isNaN(num)
+    return Object.assign(
+      {},
+      item,
+      {
+        children: null,
+        deltaPercent: numIsNum ? num : 0,
+      }
+    )
+  })
 );
 
 const nameText = (name, x, y, delta, maxLength) => {
@@ -97,84 +60,91 @@ const nameText = (name, x, y, delta, maxLength) => {
   );
 };
 
-const CustomTreemap = (props) => {
-  const { root, depth, x, y, width, height, index, colors, name, amount, delta, diveDeeper, differenceColors, showingLabels } = props;
-
-  if (depth === 1) {
-    const myD = ['M ', x, ' ', y, ' h ', width, ' v ', height, ' h -', width, ' Z'].join('');
-    return (
-      <g>
-        <title>{[name, getDollarsForTooltips(amount)].join(' ')}</title>
-        <path className="recharts-rectangle" d={myD} onClick={diveDeeper !== undefined && depth === 1 ? () => diveDeeper(props) : null}
-          style={{
-            cursor: 'pointer',
-            fill: differenceColors ? getFill(delta) : COLORS[Math.floor(index % root.children.length)],
-            stroke: '#000',
-          }} />
-        { showingLabels && (width * height > 500) && (width > 75 && height > 40) ?
-          <text x={x + 4} y={y + 16} fill={delta < 0.5 ? "black" : "white"} stroke="none" style={{ fontWeight: 'bold' }}>
-            {getDollars(amount)}
-          </text>
-        : null
-        }
-        { showingLabels && (width * height > 500) && (width > 75 && height > 40) ?
-          nameText(name, x, y, delta, parseInt(width / 8))
-        : null
-        }
-      </g>
-    );
-  }
-  return null;
-};
-
-CustomTreemap.propTypes = {
-  root: PropTypes.object, // eslint-disable-line react/forbid-prop-types
-  depth: PropTypes.number,
-  x: PropTypes.number,
-  y: PropTypes.number,
-  width: PropTypes.number,
-  height: PropTypes.number,
-  index: PropTypes.number,
-  colors: PropTypes.arrayOf(PropTypes.string),
-  name: PropTypes.string,
-  amount: PropTypes.number,
-  diveDeeper: PropTypes.func,
-  showingLabels: PropTypes.bool,
-};
-
 class Treemap extends React.Component {
   constructor(props) {
     super(props);
-    this.state = {
-      showingLabels: props.showingLabels,
-    };
-    this.toggleLabels = this.toggleLabels.bind(this);
     this.altText = props.altText;
-  }
-
-  toggleLabels(event) {
-    if (event.target.id === 'toggleLabels') {
-      this.setState({
-        showingLabels: !this.state.showingLabels,
-      });
-    }
+    this.state = { hover: null, data: this.props.data }
   }
 
   render() {
+    const filteredData = getTopLevelOnly(this.props.data);
+    const deltaDomain = filteredData.map(d => d.deltaPercent);
+    const positiveMax = deltaDomain.filter(d => d > 0).sort((a, b) => b - a);
+    const negativeMin = deltaDomain.filter(d => d <= 0).sort((a, b) => a - b);
+    positiveMax.length > 0 && positiveColor.domain([0, positiveMax[0]])
+    negativeMin.length > 0 && negativeColor.domain([0, negativeMin[0]])
+
     return (
-      <div style={{ height: this.props.height }} onClick={this.toggleLabels} alt={this.altText}>
-        <ResponsiveContainer>
-          <RechartsTreemap
-            data={getTopLevelOnly(this.props.data)}
-            dataKey="size"
-            stroke="#fff"
-            fill="#000"
-            isAnimationActive={false}
-            animationDuration={200}
-            content={<CustomTreemap {...this.props} showingLabels={this.state.showingLabels} />}
-          />
-        </ResponsiveContainer>
-        <button className="btn btn-primary btn-xs pull-right" style={{ marginTop: '3px' }} id="toggleLabels">{this.state.showingLabels === true ? 'Hide labels' : 'Show labels'}</button>
+      <div
+        style={{
+          height: this.props.height,
+          width: "100%",
+          margin: 50,
+        }}
+        alt={this.altText}
+      >
+        <NetworkFrame
+          size={[1000, this.props.height]}
+          edges={{children: filteredData, name: 'root'}}
+          nodeStyle={(d, i) => {
+            if (!d.deltaPercent) {
+              return {
+                cursor: 'pointer',
+                fill: 'white',
+                stroke: 'gray',
+                strokeWidth: '2px',
+              }
+            }
+
+            return {
+              cursor: 'pointer',
+              fill: d.deltaPercent > 0 ? positiveColor(d.deltaPercent) : negativeColor(d.deltaPercent),
+              stroke: d.deltaPercent ? (d.deltaPercent > 0 ? '#0099ff' : '#ff9933') : 'gray',
+              strokeWidth: '2px',
+            }
+          }}
+          edgeStyle={(d, i) => ({
+            cursor: 'pointer',
+            stroke: 'white',
+            fill: 'white',
+          })}
+          customHoverBehavior={d => (d && d.name ?
+            this.setState({ hover: d.name }) : this.setState({ hover: null }))
+          }
+          nodeIDAccessor={d => {return d.name.split(' ').join('-')}}
+          hoverAnnotation
+          networkType={{
+            type: "treemap",
+            projection: "horizontal",
+            nodePadding: 2,
+            forceManyBody: -15,
+            edgeStrength: 1.5,
+            padding: 3,
+            hierarchySum: d => d.size,
+          }}
+          tooltipContent={d => {
+            if (d.name === 'root') { return; }
+            return (<Tooltip
+              title={d.name}
+              textLines={[{text: d.deltaPercent, color: 'black'}]}
+              style={{
+                backgroundColor: 'white',
+                border: '1px solid black',
+              }}
+            />)
+          }}
+          nodeLabels={d => d.name !== 'root' ? d.name : ''}
+          customClickBehavior={ d => {
+            if (!d.path) { return; }
+
+            const deeperProps = Object.assign(
+              d,
+              this.props
+            )
+            this.props.diveDeeper(deeperProps)
+          }}
+        />
       </div>
     );
   }
@@ -183,8 +153,6 @@ class Treemap extends React.Component {
 Treemap.propTypes = {
   height: PropTypes.number,
   data: PropTypes.array, // eslint-disable-line react/forbid-prop-types
-  showingLabels: PropTypes.bool,
-  differenceColors: PropTypes.bool, // eslint-disable-line react/no-unused-prop-types
   diveDeeper: PropTypes.func, // eslint-disable-line react/no-unused-prop-types
   altText: PropTypes.string, // eslint-disable-line react/no-unused-prop-types
 };
@@ -192,9 +160,7 @@ Treemap.propTypes = {
 Treemap.defaultProps = {
   height: 450,
   data: [],
-  diveDeeper: undefined,
-  differenceColors: false,
-  showingLabels: true,
+  diveDeeper: null,
   altText: 'Treemap',
 };
 
